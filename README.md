@@ -3,6 +3,9 @@
 This Python script is used to update your DNS records on Cloudflare with your current public IPv4.  
 I made it because I couldn't get DDclient to work.
 
+# Requirements
+Requests is all you need. As long as the version isn't super old, it'll probably work.
+
 # Usage
 
 ```python
