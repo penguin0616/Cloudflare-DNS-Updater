@@ -11,7 +11,7 @@ import cloudflare.types.dns
 
 ################################################################################
 
-API_KEY_ENVIRONMENT_VARIABLE = "CLOUDFLARE_DNS_UPDATER_API_KEY"
+API_TOKEN_ENVIRONMENT_VARIABLE = "CLOUDFLARE_DNS_UPDATER_API_TOKEN"
 
 client: Cloudflare = None
 
@@ -116,17 +116,17 @@ def main(args: argparse.Namespace):
 	if args.config:
 		config = load_config_file(args.config)
 
-	# Get the API key
-	api_key = args.api_key
-	if not api_key:
+	# Get the API token
+	api_token = args.api_token
+	if not api_token:
 		# Okay, check if it's in the config file.
-		api_key = config.get("api_key")
+		api_token = config.get("api_token")
 
-		if not api_key:
+		if not api_token:
 			# Perhaps it's in the environment?
-			api_key = os.getenv(API_KEY_ENVIRONMENT_VARIABLE)
-			if not api_key:
-				logger.error("Error: No API key was provided.")
+			api_token = os.getenv(API_TOKEN_ENVIRONMENT_VARIABLE)
+			if not api_token:
+				logger.error("Error: No API token was provided.")
 				exit(1)
 
 	# Get the records that need to be updated.
@@ -142,7 +142,7 @@ def main(args: argparse.Namespace):
 	logger.info(f"Records: {records}")
 
 	# Create our cloudflare client and validate it
-	client = Cloudflare(api_token=api_key)
+	client = Cloudflare(api_token=api_token)
 	client.user.tokens.verify()
 
 	# Get current IP address
@@ -216,10 +216,10 @@ def main(args: argparse.Namespace):
 parser = argparse.ArgumentParser(
 	prog="update_cloudflare_records",
 	description="Updates Cloudflare DNS records with your current IP address.\nMade because I couldn't get DDclient to work.",
-	epilog="Example use: path-to-script.py --api-key <api-key> -r domain.tld -r xyz.domain.tld"
+	epilog="Example use: main.py --api-token <api_token> -r domain.tld -r xyz.domain.tld"
 )
 
-parser.add_argument("--api-key", help="The API key to use. If not provided, will try to load the environment variable \"{}\". Doesn't support the Global API key.".format(API_KEY_ENVIRONMENT_VARIABLE))
+parser.add_argument("--api-token", help="The API token to use. If not provided, will try to load the environment variable \"{}\". Doesn't support the Global API key.".format(API_TOKEN_ENVIRONMENT_VARIABLE))
 parser.add_argument("--dry", action="store_true", help="Performs a dry run, not actually updating the records.")
 parser.add_argument("-r", "--record", action="append", default=[], help="Record to update. Ex: domain.tld OR xyz.domain.tld. Can be specified multiple times.")
 parser.add_argument("-c", "--config", type=str, help="A YAML or JSON file to load configuration from.")

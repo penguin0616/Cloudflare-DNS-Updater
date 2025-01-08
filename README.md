@@ -41,7 +41,7 @@ It will not redundantly update records.
 
 I recommend creating a ``config.yaml`` (or ``config.json``) at the very least to put your DNS records in.  
 As for the API token, you can either use a ``.env`` file or the token into your environment variables. You *also* could put it in the config files, but this is not recommended.  
-The code checks for the presence of the ``CLOUDFLARE_DNS_UPDATER_API_KEY`` in the environment.  
+The code checks for the presence of the ``CLOUDFLARE_DNS_UPDATER_API_TOKEN`` in the environment.  
 
 See the sample files for reference.
 
