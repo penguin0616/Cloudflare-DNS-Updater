@@ -131,16 +131,16 @@ def main(args: argparse.Namespace):
 				exit(1)
 
 	# Get the records that need to be updated.
-	records = args.record
+	records_to_update = args.record
 	#logger.debug(f"Records from command line: {records}")
 
 	if "records" in config:
-		records += config["records"]
+		records_to_update += config["records"]
 	else:
 		logger.debug("Configuration file did not specify any records.")
 
 
-	logger.info(f"Records: {records}")
+	logger.info(f"Records: {records_to_update}")
 
 	# Create our cloudflare client and validate it
 	client = Cloudflare(api_token=api_token)
@@ -161,8 +161,13 @@ def main(args: argparse.Namespace):
 	# we can just reuse our cache instead of making another request.
 	known_dns_records: dict[str, cloudflare.types.dns.Record] = {}
 
+
+	gathered_exceptions = []
+	num_changed = 0
+	num_errored = 0
+
 	# Start matching records against zones
-	for record_name in records:
+	for record_name in records_to_update:
 		dns_record = None
 
 		# Check if we already have the DNS record for this.
@@ -178,6 +183,7 @@ def main(args: argparse.Namespace):
 			
 			if len(zone) == 0:
 				logger.warning(f"Unable to find zone for record \"{record_name}\"")
+				num_errored += 1
 				continue
 		
 			# We have the zone, now get the DNS records associated with the zone.
@@ -192,6 +198,7 @@ def main(args: argparse.Namespace):
 		# Make sure we got a record to update.
 		if dns_record is None:
 			logger.warning(f"Unable to find DNS record for \"{record_name}\"")
+			num_errored += 1
 			continue
 		
 		if dns_record.content == ip:
@@ -200,13 +207,29 @@ def main(args: argparse.Namespace):
 
 		if args.dry:
 			logger.info(f"Would have updated record \"{record_name}\" from [{dns_record.content}] to [{ip}]")
+			num_changed += 1
 		else:
+			#logger.info(f"Attempting to update the DNS record for {record_name}")
 			try:
-				client.dns.records.update(dns_record_id=dns_record.id, content=ip)
+				# The naming on this is a little messed up. 
+				# I thought it was .update, but .update is actually OVERWRITE: https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/update/
+				# UPDATE is actually .edit: https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/edit/
+				# I'm not sure why the endpoint only needs dns record and zone id, but this also needs name and type.
+				client.dns.records.edit(dns_record_id=dns_record.id, zone_id=dns_record.zone_id, content=ip, name=dns_record.name, type=dns_record.type)
 				logger.info(f"Updated record \"{record_name}\" from [{dns_record.content}] to [{ip}]")
+				num_changed += 1
 			except Exception as err:
 				logger.error(f"Encountered an error updating the DNS record for \"{record_name}\"")
 				logger.exception(err)
+				gathered_exceptions.append(err)
+	
+
+	num_errored += len(gathered_exceptions)
+	num_records = len(records_to_update)
+	logger.info(f"Out of [{num_records}] records: [{num_changed}] were updated, [{num_errored}] had a problem, [{num_records-num_changed-num_errored}] had nothing happen.")
+
+	if len(gathered_exceptions) > 0:
+		raise ExceptionGroup("The following exceptions occured during execution", gathered_exceptions)
 
 
 		
