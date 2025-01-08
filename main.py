@@ -46,6 +46,7 @@ except ImportError:
 	logger.debug("Did not find python-dotenv; ignoring .env files.")
 
 try:
+	YAML = None
 	from ruamel.yaml import YAML
 	logger.debug("Found ruamel.yaml")
 except ImportError:
