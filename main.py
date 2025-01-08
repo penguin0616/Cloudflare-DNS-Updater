@@ -21,7 +21,7 @@ logger.setLevel(logging.DEBUG)
 # https://docs.python.org/3/library/logging.html#logrecord-attributes
 
 # https://docs.python.org/3/library/logging.handlers.html#rotatingfilehandler
-file_handler = RotatingFileHandler("log.log", mode="a", maxBytes=1000000, backupCount=3)
+file_handler = RotatingFileHandler(os.path.join(os.path.split(__file__)[0], "log.log"), mode="a", maxBytes=1000000, backupCount=3)
 file_handler.setLevel(logging.DEBUG)
 file_handler.setFormatter(logging.Formatter(fmt="[%(asctime)s] %(levelname)-8s : %(message)s", datefmt="%m/%d/%Y %H:%M:%S"))
 logger.addHandler(file_handler)
