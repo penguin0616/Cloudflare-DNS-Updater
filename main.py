@@ -127,7 +127,7 @@ def main(args: argparse.Namespace):
 			# Perhaps it's in the environment?
 			api_token = os.getenv(API_TOKEN_ENVIRONMENT_VARIABLE)
 			if not api_token:
-				logger.error("Error: No API token was provided.")
+				logger.error("Error: No API token was provided. If you're doing it through an env file, did you forget to install python-dotenv?")
 				exit(1)
 
 	# Get the records that need to be updated.
