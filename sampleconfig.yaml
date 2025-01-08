@@ -1,0 +1,6 @@
+# Sample layout of a configuration file.
+api_key: "blah"  # I don't recommend you put your api_key in the configuration file. 
+records:
+  - "something.tld"
+  - "xyz.something.tld"
+  - "*.otherthing.tld"

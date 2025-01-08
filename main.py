@@ -1,155 +1,215 @@
 #!python
-import requests
-import json
 import argparse
+import json
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+import requests
+from cloudflare import Cloudflare
+import cloudflare.types.zones
+import cloudflare.types.dns
+
+################################################################################
+
+API_KEY_ENVIRONMENT_VARIABLE = "CLOUDFLARE_DNS_UPDATER_API_KEY"
+
+client: Cloudflare = None
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# https://docs.python.org/3/library/logging.html#logrecord-attributes
+
+# https://docs.python.org/3/library/logging.handlers.html#rotatingfilehandler
+file_handler = RotatingFileHandler("log.log", mode="a", maxBytes=1000000, backupCount=3)
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(logging.Formatter(fmt="[%(asctime)s] %(levelname)-8s : %(message)s", datefmt="%m/%d/%Y %H:%M:%S"))
+logger.addHandler(file_handler)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(logging.Formatter(fmt="[%(levelname)s] %(message)s", datefmt="%m/%d/%Y %H:%M:%S"))
+logger.addHandler(console_handler)
+
+################################################################################
+
+# This is pretty bad, but we're doing a second round of imports.
+
+try:
+	import dotenv
+	found = dotenv.load_dotenv()
+	if found:
+		logger.debug("dotenv successfully found environment variables.")
+	else:
+		logger.debug("dotenv did not find any environment variables.")
+except ImportError:
+	logger.debug("Did not find python-dotenv; ignoring .env files.")
+
+try:
+	from ruamel.yaml import YAML
+	logger.debug("Found ruamel.yaml")
+except ImportError:
+	logger.debug("Did not find ruamel.yaml; ignoring .yaml files")
 
 
-session = None
-dnsRecordCache = {}
+################################################################################
 
+def get_ip_address() -> str:
+	"""
+	Queries an external service to get our external IP address.
 
-
-def createSession(apiKey: str):
-	global session
-
-	# Create session
-	session = requests.session()
-	session.headers["Authorization"] = f"Bearer {apiKey}"
-	session.headers["Content-Type"] = "application/json"
-	# session.verify = False
-
-
-def getIPAddress():
+	:return: IPv4 address of client.
+	"""
 	# Get our IP address
-	res = session.get("http://api.ipify.org")
+	res = requests.get("http://api.ipify.org")
 
 	if res.status_code != 200:
-		print(res.text)
-		raise Exception(f"Ipify returned status code {res.status_code}")
+		raise Exception(f"Ipify returned error ({res.status_code}) while querying IP", res.text)
 
 	ip = res.text
 	return ip
 
 
+def load_config_file(filepath: str) -> dict:
+	filename, ext = os.path.splitext(filepath)
 
-# Cloudflare stuff
-def getZones():
-	"""
-	Gets a list of zones for the client.
+	filepath = os.path.abspath(filepath)
 
-	https://developers.cloudflare.com/api/operations/zones-get
-	[Zone -> List Zones]
+	data = None
 
-	:return:
-	"""
-	
-	res = session.get("https://api.cloudflare.com/client/v4/zones")
-	if res.status_code != 200:
-		print(res.text)
-		raise Exception(f"Cloudflare returned error getting zones; status code {res.status_code}")
-
-	zoneList = res.json()["result"]
-	return zoneList
-
-
-def getDNSRecords(zoneId: str, ignoreCache: bool = False):
-	"""
-	Obtains a list of DNS records for a zone.
-
-	Documentation:
-	https://developers.cloudflare.com/api/operations/dns-records-for-a-zone-list-dns-records
-	[DNS Records for a Zone -> List DNS Records]
-	
-	:param zone_id: The ID for the zone.
-	:return:
-	"""
-
-	global dnsRecordCache
-
-	# If the records are cached, just use that.
-	if not ignoreCache and (zoneId in dnsRecordCache):
-		return dnsRecordCache[zoneId]
-
-
-	res = session.get(f"https://api.cloudflare.com/client/v4/zones/{zoneId}/dns_records")
-	if res.status_code != 200:
-		print(res.text)
-		raise Exception(f"Cloudflare returned error getting DNS records for a zone; status code {res.status_code}")
-
-	dnsRecords = res.json()["result"]
-
-	dnsRecordCache[zoneId] = dnsRecords
-
-	return dnsRecords
-
-
-
-def updateDNSRecord(zoneId: str, recordId: str, newIP: str):
-	"""
-	Updates a DNS record to use the specified IP address.
-	
-	:param zoneId:
-	:param recordName:
-	:param newIP:
-	"""
-
-	res = session.patch(f"https://api.cloudflare.com/client/v4/zones/{zoneId}/dns_records/{recordId}", json.dumps({
-		"content": newIP
-	}))
-	if res.status_code != 200:
-		print(res.text)
-		raise Exception(f"Cloudflare returned error updating a DNS record for a zone; status code {res.status_code}")
-	
-	# All good?
-	
-
-
-def findAndUpdateDNSRecord(zoneId: str, recordName: str, newIP: str):
-	"""
-	Finds the DNS record that matches the recordName, and updates it to use the specified IP address.
-	
-	:param zoneId:
-	:param recordName:
-	:param newIP:
-	"""
-
-	dnsRecords = getDNSRecords(zoneId)
-
-	for record in dnsRecords:
-		if record["name"] == recordName:
-			
-			if record["content"] == newIP:
-				print("DNS record '{}' ({}) is already up to date with [{}]".format(recordName, record["id"], record["content"]))
-				break
-
-			updateDNSRecord(zoneId, record["id"], newIP)
-			print("Updated DNS record '{}' ({}) from [{}] to [{}]".format(recordName, record["id"], record["content"], newIP))
-			break
-
-	# print(f"Updated DNS record {recordId}")
-
-
-def main(apiKey: str, recordsToUpdate: list[str]):
-	createSession(apiKey)
-	ip = getIPAddress()
-	print(f"Current IP Address: {ip}")
-
-	zones = getZones()
-	
-	for record in recordsToUpdate:
-		# Get the zone that belongs to the record.
-		zone = [ x for x in zones if record.endswith(x["name"]) ]
+	# Load the data based on filetype.
+	if ext == ".yaml": 
+		if not YAML:
+			logger.error("Cannot load .yaml files without installing ruamel.yaml; See https://pypi.org/project/ruamel.yaml/")
+			exit(1)
 		
-		if len(zone) == 0:
-			print(f"Unable to find zone for record '{record}'")
+		yaml = YAML(typ="safe")
+		with open(filepath) as f:
+			data = yaml.load(f)
+	
+	elif ext == ".json":
+		with open(filepath) as f:
+			data = json.load(f)
+
+	else:
+		logger.error(f"Unrecognized file extension for \"{filepath}\"")
+		exit(1)
+
+	# Make sure it is a dictionary.
+	data_type = type(data)
+	if data_type != dict:
+		logger.error(f"Config file expected to be a dictionary, not a [{data_type}]")
+		exit(1)
+
+	# Make sure that the records field is a list, provided it exists.
+	if "records" in data:
+		records_type = type(data["records"])
+		if records_type != list:
+			logger.error(f"Expected records field \"records\" to be a list, not [{records_type}]")
+
+	return data
+
+
+def main(args: argparse.Namespace):
+	# Load configuration file
+	config = {}
+	if args.config:
+		config = load_config_file(args.config)
+
+	# Get the API key
+	api_key = args.api_key
+	if not api_key:
+		# Okay, check if it's in the config file.
+		api_key = config.get("api_key")
+
+		if not api_key:
+			# Perhaps it's in the environment?
+			api_key = os.getenv(API_KEY_ENVIRONMENT_VARIABLE)
+			if not api_key:
+				logger.error("Error: No API key was provided.")
+				exit(1)
+
+	# Get the records that need to be updated.
+	records = args.record
+	#logger.debug(f"Records from command line: {records}")
+
+	if "records" in config:
+		records += config["records"]
+	else:
+		logger.debug("Configuration file did not specify any records.")
+
+
+	logger.info(f"Records: {records}")
+
+	# Create our cloudflare client and validate it
+	client = Cloudflare(api_token=api_key)
+	client.user.tokens.verify()
+
+	# Get current IP address
+	ip = get_ip_address()
+	logger.info(f"Current IP Address: {ip}")
+
+	# Get all of the zones visible to our token
+	zones: list[cloudflare.types.zones.Zone] = []
+
+	for page in client.zones.list().iter_pages():
+		zones += page.result
+	
+
+	# Keep track of the known DNS records so if we hit one we already know, 
+	# we can just reuse our cache instead of making another request.
+	known_dns_records: dict[str, cloudflare.types.dns.Record] = {}
+
+	# Start matching records against zones
+	for record_name in records:
+		dns_record = None
+
+		# Check if we already have the DNS record for this.
+		if record_name in known_dns_records:
+			dns_record = known_dns_records[record_name]
+		else:
+			record_chunks = record_name.split(".")
+			root_domain = ".".join(record_chunks[-2:])
+
+			# Get the zone that belongs to the record.
+			# logger.debug("%s; %s", record_name, root_domain)
+			zone = [ z for z in zones if z.name == root_domain ]
+			
+			if len(zone) == 0:
+				logger.warning(f"Unable to find zone for record \"{record_name}\"")
+				continue
+		
+			# We have the zone, now get the DNS records associated with the zone.
+			zone = zone[0]
+			for page in client.dns.records.list(zone_id=zone.id).iter_pages():
+				for r in page.result:
+					if r.type == "A":
+						known_dns_records[r.name] = r
+						if r.name == record_name:
+							dns_record = r
+		
+		# Make sure we got a record to update.
+		if dns_record is None:
+			logger.warning(f"Unable to find DNS record for \"{record_name}\"")
 			continue
 		
-		zone = zone[0]
+		if dns_record.content == ip:
+			logger.info(f"Record \"{record_name}\" is already up to date with address [{dns_record.content}]!")
+			continue
 
-		findAndUpdateDNSRecord(zone["id"], record, ip)
+		if args.dry:
+			logger.info(f"Would have updated record \"{record_name}\" from [{dns_record.content}] to [{ip}]")
+		else:
+			try:
+				client.dns.records.update(dns_record_id=dns_record.id, content=ip)
+				logger.info(f"Updated record \"{record_name}\" from [{dns_record.content}] to [{ip}]")
+			except Exception as err:
+				logger.error(f"Encountered an error updating the DNS record for \"{record_name}\"")
+				logger.exception(err)
+
 
 		
-
+################################################################################
 
 
 # Init
@@ -159,15 +219,16 @@ parser = argparse.ArgumentParser(
 	epilog="Example use: path-to-script.py --api-key <api-key> -r domain.tld -r xyz.domain.tld"
 )
 
-parser.add_argument("--api-key", required=True, help="The API key to use. Doesn't support the Global API key.")
-parser.add_argument("-r", "--record", action="append", help="Record to update. Ex: domain.tld OR xyz.domain.tld. Can be specified multiple times.")
+parser.add_argument("--api-key", help="The API key to use. If not provided, will try to load the environment variable \"{}\". Doesn't support the Global API key.".format(API_KEY_ENVIRONMENT_VARIABLE))
+parser.add_argument("--dry", action="store_true", help="Performs a dry run, not actually updating the records.")
+parser.add_argument("-r", "--record", action="append", default=[], help="Record to update. Ex: domain.tld OR xyz.domain.tld. Can be specified multiple times.")
+parser.add_argument("-c", "--config", type=str, help="A YAML or JSON file to load configuration from.")
 
 
 if __name__ == "__main__":
 	args = parser.parse_args()
 
-	if args.record is None:
-		print("Error: No records were specified.")
-		exit(1)
-
-	main(args.api_key, args.record)
+	try:
+		main(args)
+	except Exception as err:
+		logger.exception(err)

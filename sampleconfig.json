@@ -1,0 +1,4 @@
+{
+	"api_key": "blah",
+	"records": ["something.tld", "xyz.something.tld", "*.otherthing.tld"]
+}
