@@ -139,6 +139,9 @@ def main(args: argparse.Namespace):
 	else:
 		logger.debug("Configuration file did not specify any records.")
 
+	if len(records_to_update) == 0:
+		logger.error("There were no records specified, exiting.")
+		exit(0)
 
 	logger.info(f"Records: {records_to_update}")
 
