@@ -70,7 +70,7 @@ sudo nano /etc/systemd/system/cloudflare-dns-updater.timer
 
 ```ini
 [Unit]
-Description=Triggers the updater.
+Description=Trigger for the Cloudflare DNS updater.
 Requires=cloudflare-dns-updater.service
 
 [Timer]
@@ -93,6 +93,8 @@ sudo systemctl enable cloudflare-dns-updater.timer
 sudo nano /etc/systemd/system/cloudflare-dns-updater.service
 ```
 
+### Normal
+
 ```ini
 [Unit]
 Description=cloudflare-dns-updater
@@ -109,6 +111,25 @@ ExecStart=python3 /home/<user>/Cloudflare-DNS-Updater/main.py --config /home/<us
 [Install]
 WantedBy=multi-user.target
 ```
+
+### Venv
+
+```ini
+[Unit]
+Description=cloudflare-dns-updater
+After=network.target
+Wants=cloudflare-dns-updater.timer
+
+[Service]
+Type=oneshot
+user=<user>
+group=<group>
+ExecStart=/home/<user>/.venv/<venv>/bin/python3 /home/<user>/Cloudflare-DNS-Updater/main.py --config /home/<user>/Cloudflare-DNS-Updater/config.yaml
+
+[Install]
+WantedBy=multi-user.target
+```
+
 
 ```bash
 sudo systemctl daemon-reload
