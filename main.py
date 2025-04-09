@@ -211,7 +211,6 @@ def main(args: argparse.Namespace):
 			continue
 
 		if args.dry:
-			print(dns_record)
 			logger.info(f"Would have updated record \"{record_name}\" from [{dns_record.content}] to [{ip}]")
 			num_changed += 1
 		else:
