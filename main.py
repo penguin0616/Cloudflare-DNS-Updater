@@ -162,7 +162,7 @@ def main(args: argparse.Namespace):
 
 	# Keep track of the known DNS records so if we hit one we already know, 
 	# we can just reuse our cache instead of making another request.
-	known_dns_records: dict[str, cloudflare.types.dns.Record] = {}
+	known_dns_records: dict[str, list[cloudflare.types.dns.Record, cloudflare.types.zones.Zone]] = {}
 
 
 	gathered_exceptions = []
@@ -172,10 +172,11 @@ def main(args: argparse.Namespace):
 	# Start matching records against zones
 	for record_name in records_to_update:
 		dns_record = None
+		zone = None
 
 		# Check if we already have the DNS record for this.
 		if record_name in known_dns_records:
-			dns_record = known_dns_records[record_name]
+			dns_record, zone = known_dns_records[record_name]
 		else:
 			record_chunks = record_name.split(".")
 			root_domain = ".".join(record_chunks[-2:])
@@ -194,10 +195,11 @@ def main(args: argparse.Namespace):
 			for page in client.dns.records.list(zone_id=zone.id).iter_pages():
 				for r in page.result:
 					if r.type == "A":
-						known_dns_records[r.name] = r
+						known_dns_records[r.name] = [r, zone]
 						if r.name == record_name:
 							dns_record = r
-		
+							break
+
 		# Make sure we got a record to update.
 		if dns_record is None:
 			logger.warning(f"Unable to find DNS record for \"{record_name}\"")
@@ -218,7 +220,7 @@ def main(args: argparse.Namespace):
 				# I thought it was .update, but .update is actually OVERWRITE: https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/update/
 				# UPDATE is actually .edit: https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/edit/
 				# I'm not sure why the endpoint only needs dns record and zone id, but this also needs name and type.
-				client.dns.records.edit(dns_record_id=dns_record.id, zone_id=dns_record.zone_id, content=ip, name=dns_record.name, type=dns_record.type)
+				client.dns.records.edit(dns_record_id=dns_record.id, zone_id=zone.id, content=ip, name=dns_record.name, type=dns_record.type)
 				logger.info(f"Updated record \"{record_name}\" from [{dns_record.content}] to [{ip}]")
 				num_changed += 1
 			except Exception as err:
