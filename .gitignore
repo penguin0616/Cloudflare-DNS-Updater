@@ -1,5 +1,4 @@
-*
-!.gitignore
-!*.py
-!samples
-!*.md
+*.log
+*.idea
+config.*
+*.env
